@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-tools"
 version = "0.1.0"
-description = "A comprehensive Agent Tool System"
+description = "A comprehensive Agent Tool System for AI agents"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -20,6 +20,9 @@ dev = [
     "pytest>=7.0",
     "ruff>=0.1",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["agent_tools"]
 
 [tool.ruff]
 line-length = 100

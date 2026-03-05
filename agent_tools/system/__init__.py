@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Agent Tools - 系统执行工具
+系统执行工具模块
 
-参考:
-- https://github.com/anthropics/claude-code
-- https://github.com/mariozechner/pi-coding-agent
+参考: https://github.com/anomalyco/opencode/tree/main/packages/opencode/src/tool
 """
 from .bash import BashInput, BashOutput, run_bash
 from .lsp import LSPInput, LSPOutput, lsp_request

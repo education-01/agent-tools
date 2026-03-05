@@ -1,15 +1,10 @@
 """代码理解 - LSP 工具
 
 参考实现:
+- https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/lsp.ts (OpenCode LSP)
 - https://github.com/pappasam/jedi-language-server (Jedi LSP Server)
 - https://github.com/microsoft/pyright (Python 静态类型检查)
-- https://github.com/python-lsp/python-lsp-server (Python LSP Server)
 - https://microsoft.github.io/language-server-protocol/specification (LSP 协议规范)
-
-基于:
-- jedi: Python 代码分析
-- lsprotocol: LSP 协议类型
-- pygls: Python LSP 服务器框架
 """
 from pydantic import BaseModel, Field
 from pathlib import Path
