@@ -1,11 +1,13 @@
 """网页搜索工具
 
 参考: https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/websearch.ts
-
-注意: 需要配置搜索 API (如 Brave Search API)
 """
 from pydantic import BaseModel, Field
 from typing import Optional, List
+import re
+import html
+import urllib.request
+import urllib.parse
 
 
 class WebSearchResult(BaseModel):
@@ -30,21 +32,55 @@ class WebSearchOutput(BaseModel):
 
 def search_web(query: str, count: int = 10) -> WebSearchOutput:
     """
-    搜索网页
+    搜索网页 - 使用 DuckDuckGo HTML 端点
+    
+    参考: https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/websearch.ts
     
     参数:
         query: 搜索关键词
         count: 结果数量
-        
-    注意: 此函数需要配置搜索 API。
-    可以使用以下服务:
-    - Brave Search API: https://brave.com/search/api/
-    - SerpAPI: https://serpapi.com/
-    - Google Custom Search: https://developers.google.com/custom-search
     """
-    # 占位实现 - 实际使用需要配置 API
-    return WebSearchOutput(
-        results=[],
-        success=False,
-        error="Web search requires API configuration. Please set up a search API (Brave, SerpAPI, or Google Custom Search)."
-    )
+    try:
+        url = f"https://duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+        
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; AgentTools/1.0)'
+        })
+        
+        with urllib.request.urlopen(req, timeout=10) as response:
+            text = response.read().decode('utf-8')
+        
+        # 解析搜索结果
+        pattern = r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>'
+        hits = re.findall(pattern, text)
+        
+        results = []
+        for url, title in hits[:count]:
+            # 清理 HTML 标签
+            clean_title = re.sub('<[^>]+>', '', html.unescape(title)).strip()
+            
+            # 提取实际 URL (DuckDuckGo 使用重定向)
+            if url.startswith('//'):
+                url = 'https:' + url
+            
+            results.append(WebSearchResult(
+                title=clean_title,
+                url=url,
+                snippet=""  # DuckDuckGo HTML 端点不提供 snippet
+            ))
+        
+        if results:
+            return WebSearchOutput(results=results, success=True)
+        else:
+            return WebSearchOutput(
+                results=[],
+                success=False,
+                error="No search results found from DuckDuckGo."
+            )
+            
+    except Exception as e:
+        return WebSearchOutput(
+            results=[],
+            success=False,
+            error=f"Search failed: {str(e)}"
+        )
