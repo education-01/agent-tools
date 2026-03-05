@@ -7,38 +7,58 @@ from typing import Optional
 import subprocess
 
 
+# 参考 OpenCode 的常量
+DEFAULT_TIMEOUT = 2 * 60 * 1000  # 2 分钟
+
+
 class BashInput(BaseModel):
-    """Bash 命令输入"""
-    command: str = Field(description="要执行的命令")
-    timeout: int = Field(default=30000, description="超时时间（毫秒）")
-    cwd: Optional[str] = Field(default=None, description="工作目录")
+    """Bash 命令输入 - 参考 OpenCode bash.ts 参数"""
+    command: str = Field(description="The command to execute")
+    timeout: Optional[int] = Field(default=None, description="Optional timeout in milliseconds")
+    workdir: Optional[str] = Field(default=None, description="The working directory to run the command in")
+    description: Optional[str] = Field(
+        default=None,
+        description="Clear, concise description of what this command does in 5-10 words"
+    )
 
 
 class BashOutput(BaseModel):
     """Bash 命令输出"""
-    stdout: str = Field(description="标准输出")
-    stderr: str = Field(description="标准错误")
-    exit_code: int = Field(description="退出码")
-    success: bool = Field(description="是否成功")
+    stdout: str = Field(description="Standard output")
+    stderr: str = Field(description="Standard error")
+    exit_code: int = Field(description="Exit code")
+    success: bool = Field(description="Whether the command succeeded")
+    interrupted: bool = Field(default=False, description="Whether the command was interrupted")
 
 
-def run_bash(command: str, timeout: int = 30000, cwd: str = None) -> BashOutput:
+def run_bash(
+    command: str,
+    timeout: int = None,
+    workdir: str = None,
+    description: str = None
+) -> BashOutput:
     """
     执行 Bash 命令
     
+    参考: https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/bash.ts
+    
     参数:
         command: 要执行的命令
-        timeout: 超时时间（毫秒）
-        cwd: 工作目录
+        timeout: 超时时间（毫秒），默认 2 分钟
+        workdir: 工作目录
+        description: 命令描述（5-10 个词）
     """
+    timeout_ms = timeout or DEFAULT_TIMEOUT
+    timeout_sec = timeout_ms / 1000
+    
     try:
         result = subprocess.run(
             command,
             shell=True,
             capture_output=True,
             text=True,
-            timeout=timeout / 1000,
-            cwd=cwd
+            timeout=timeout_sec,
+            cwd=workdir
         )
         
         return BashOutput(
@@ -50,9 +70,10 @@ def run_bash(command: str, timeout: int = 30000, cwd: str = None) -> BashOutput:
     except subprocess.TimeoutExpired:
         return BashOutput(
             stdout="",
-            stderr=f"Command timed out after {timeout}ms",
+            stderr=f"Command timed out after {timeout_ms}ms",
             exit_code=-1,
-            success=False
+            success=False,
+            interrupted=True
         )
     except Exception as e:
         return BashOutput(

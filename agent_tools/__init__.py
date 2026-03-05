@@ -4,8 +4,6 @@ Agent Tools - AI 代理工具系统
 
 参考实现:
 - https://github.com/anomalyco/opencode/tree/main/packages/opencode/src/tool (OpenCode 工具实现)
-- https://github.com/badlogic/pi-mono/tree/master/packages/coding-agent (pi-coding-agent)
-- https://github.com/openai/openai-agents-python (OpenAI Agents SDK)
 
 工具模块:
 - filesystem: read, write, edit, glob, grep
