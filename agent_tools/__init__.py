@@ -139,6 +139,73 @@ class QuestionArgs(BaseModel):
   options: list[str] = Field(default_factory=list, description="Optional choices")
 
 
+class BatchCall(BaseModel):
+  """批量调用项"""
+  tool: str = Field(..., description="Tool name")
+  input: dict[str, Any] = Field(default_factory=dict, description="Tool input")
+
+
+class BatchCall(BaseModel):
+  """批量调用项"""
+  tool: str = Field(..., description="Tool name")
+  input: dict[str, Any] = Field(default_factory=dict, description="Tool input")
+
+
+class NotebookEditArgs(BaseModel):
+  """Notebook 编辑参数"""
+  file_path: str = Field(..., description="Notebook file path")
+  cells: list[dict[str, Any]] = Field(default_factory=list, description="Notebook cells")
+
+
+class AgentArgs(BaseModel):
+  """子代理参数"""
+  description: str = Field(..., description="3-5 words description")
+  prompt: str = Field(..., description="Agent prompt")
+  agent_type: str = Field("default", description="Agent type")
+
+
+class WorktreeArgs(BaseModel):
+  """Worktree 参数"""
+  action: str = Field("create", description="create|list|remove")
+  branch: str = Field("", description="Branch name")
+  path: str = Field("", description="Target path")
+
+
+class ToolSearchArgs(BaseModel):
+  """工具搜索参数"""
+  query: str = Field(..., description="Search query")
+
+
+# ============ 任务管理参数 ============
+
+class TaskCreateArgs(BaseModel):
+  """创建任务参数"""
+  description: str = Field(..., description="3-5 words description")
+  prompt: str = Field(..., description="Task prompt")
+
+
+class TaskListArgs(BaseModel):
+  """列出任务参数"""
+  pass
+
+
+class TaskUpdateArgs(BaseModel):
+  """更新任务参数"""
+  task_id: str = Field(..., description="Task ID")
+  status: str = Field(..., description="pending|running|completed|failed")
+  output: str = Field("", description="Task output")
+
+
+class TaskStopArgs(BaseModel):
+  """停止任务参数"""
+  task_id: str = Field(..., description="Task ID")
+
+
+class TaskOutputArgs(BaseModel):
+  """获取任务输出参数"""
+  task_id: str = Field(..., description="Task ID")
+
+
 # ============ 状态管理 ============
 
 @dataclass
@@ -492,6 +559,216 @@ def question(question_text: str, options: list[str] | None = None) -> str:
   return f"QUESTION_FOR_USER: {question_text}{opts}"
 
 
+# ============ 批量调用 ============
+
+# 工具执行映射
+_EXEC_MAP: dict[str, Any] = {}
+
+def _init_exec_map() -> None:
+  """初始化工具执行映射"""
+  global _EXEC_MAP
+  _EXEC_MAP = {
+    "bash": bash,
+    "read": read,
+    "write": write,
+    "edit": edit,
+    "multiedit": multiedit,
+    "glob": glob_tool,
+    "grep": grep,
+    "list": list_dir,
+    "webfetch": webfetch,
+    "websearch": websearch,
+    "todowrite": todowrite,
+    "todoread": todoread,
+    "task": task,
+    "lsp": lsp,
+    "plan_enter": plan_enter,
+    "plan_exit": plan_exit,
+    "question": question,
+  }
+
+
+def batch(calls: list[BatchCall] | list[dict]) -> str:
+  """批量调用工具
+
+  参考: https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/batch.ts
+  """
+  _init_exec_map()
+  rows = []
+  for idx, call in enumerate(calls, start=1):
+    if isinstance(call, dict):
+      name = call.get("tool", "")
+      payload = call.get("input", {})
+    else:
+      name = call.tool
+      payload = call.input
+
+    fn = _EXEC_MAP.get(name)
+    if not fn:
+      rows.append(f"{idx}. {name}: unknown tool")
+      continue
+    if name == "batch":
+      rows.append(f"{idx}. batch: nested batch is not allowed")
+      continue
+    try:
+      out = fn(**payload)
+      rows.append(f"{idx}. {name}: ok\n{out}")
+    except Exception as error:
+      rows.append(f"{idx}. {name}: error {error}")
+  return "\n\n".join(rows)
+
+
+# ============ 任务管理 (拆分) ============
+
+_tasks: dict[str, dict[str, Any]] = {}
+
+def task_create(description: str, prompt: str) -> str:
+  """创建任务"""
+  import uuid
+  task_id = str(uuid.uuid4())[:8]
+  _tasks[task_id] = {
+    "id": task_id,
+    "description": description,
+    "prompt": prompt,
+    "status": "pending",
+    "output": None
+  }
+  return json.dumps(_tasks[task_id], ensure_ascii=False, indent=2)
+
+
+def task_list() -> str:
+  """列出所有任务"""
+  return json.dumps(list(_tasks.values()), ensure_ascii=False, indent=2)
+
+
+def task_update(task_id: str, status: str, output: str = "") -> str:
+  """更新任务状态"""
+  if task_id not in _tasks:
+    return f"Task {task_id} not found"
+  _tasks[task_id]["status"] = status
+  if output:
+    _tasks[task_id]["output"] = output
+  return json.dumps(_tasks[task_id], ensure_ascii=False, indent=2)
+
+
+def task_stop(task_id: str) -> str:
+  """停止任务"""
+  if task_id not in _tasks:
+    return f"Task {task_id} not found"
+  _tasks[task_id]["status"] = "stopped"
+  return json.dumps(_tasks[task_id], ensure_ascii=False, indent=2)
+
+
+def task_output(task_id: str) -> str:
+  """获取任务输出"""
+  if task_id not in _tasks:
+    return f"Task {task_id} not found"
+  return json.dumps(_tasks[task_id], ensure_ascii=False, indent=2)
+
+
+# ============ 高级 Agent 能力 ============
+
+def notebook_edit(file_path: str, cells: list[dict[str, Any]] | None = None) -> str:
+  """编辑 Jupyter Notebook
+
+  参考: https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/notebook.ts
+  """
+  import json
+  path = _state.resolve(file_path)
+
+  if not path.exists():
+    nb = {
+      "cells": [],
+      "metadata": {},
+      "nbformat": 4,
+      "nbformat_minor": 5
+    }
+  else:
+    with open(path, 'r', encoding='utf-8') as f:
+      nb = json.load(f)
+
+  if cells:
+    nb["cells"] = cells
+
+  path.parent.mkdir(parents=True, exist_ok=True)
+  with open(path, 'w', encoding='utf-8') as f:
+    json.dump(nb, f, indent=2)
+
+  return f"Notebook saved: {path}"
+
+
+def agent(description: str, prompt: str, agent_type: str = "default") -> str:
+  """创建子代理
+
+  参考: https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/agent.ts
+  """
+  # 占位实现 - 需要 LLM 集成
+  return f"<agent_result type='{agent_type}' description='{description}'>\nSubagent created. Prompt: {prompt[:100]}...\n</agent_result>"
+
+
+def worktree(action: str = "create", branch: str = "", path: str = "") -> str:
+  """Git Worktree 操作
+
+  参考: https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/worktree.ts
+  """
+  if action == "list":
+    proc = subprocess.run(
+      ["git", "worktree", "list"],
+      cwd=_state.workdir,
+      capture_output=True,
+      text=True
+    )
+    return proc.stdout or proc.stderr
+
+  if action == "create":
+    if not branch:
+      return "Branch name required"
+    cmd = ["git", "worktree", "add"]
+    if path:
+      cmd.append(path)
+    cmd.append(branch)
+    proc = subprocess.run(cmd, cwd=_state.workdir, capture_output=True, text=True)
+    return proc.stdout or proc.stderr
+
+  if action == "remove":
+    if not path:
+      return "Path required for remove"
+    proc = subprocess.run(
+      ["git", "worktree", "remove", path],
+      cwd=_state.workdir,
+      capture_output=True,
+      text=True
+    )
+    return proc.stdout or proc.stderr
+
+  return f"Unknown action: {action}"
+
+
+def team(goal: str, agents: list[dict[str, str]] | None = None) -> str:
+  """团队协作
+
+  参考: https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/team.ts
+  """
+  # 占位实现 - 需要 LLM 集成
+  agent_list = agents or []
+  return f"<team_result goal='{goal}'>\nTeam collaboration with {len(agent_list)} agents.\nRequires LLM integration.\n</team_result>"
+
+
+def tool_search(query: str) -> str:
+  """搜索工具
+
+  参考: https://github.com/anomalyco/opencode/blob/main/packages/opencode/src/tool/tool.ts
+  """
+  _init_exec_map()
+  results = []
+  for name in _EXEC_MAP:
+    if query.lower() in name.lower():
+      results.append(f"- {name}")
+  if results:
+    return f"Found {len(results)} tools:\n" + "\n".join(results)
+  return f"No tools found matching: {query}"
+
+
 __all__ = [
   # 状态
   "ToolState",
@@ -516,8 +793,17 @@ __all__ = [
   "LspArgs",
   "PlanEnterArgs",
   "QuestionArgs",
-  # 工具函数
-  "bash",
+  "BatchCall",
+  "NotebookEditArgs",
+  "AgentArgs",
+  "WorktreeArgs",
+  "ToolSearchArgs",
+  "TaskCreateArgs",
+  "TaskListArgs",
+  "TaskUpdateArgs",
+  "TaskStopArgs",
+  "TaskOutputArgs",
+  # 文件系统
   "read",
   "write",
   "edit",
@@ -525,13 +811,33 @@ __all__ = [
   "glob_tool",
   "grep",
   "list_dir",
+  # 系统执行
+  "bash",
+  # 代码理解
+  "lsp",
+  # 信息获取
   "webfetch",
   "websearch",
+  # 用户交互
+  "question",
+  # 任务管理
   "todowrite",
   "todoread",
   "task",
-  "lsp",
+  "task_create",
+  "task_list",
+  "task_update",
+  "task_stop",
+  "task_output",
+  # 规划系统
   "plan_enter",
   "plan_exit",
-  "question",
+  # 批量调用
+  "batch",
+  # 高级 Agent 能力
+  "notebook_edit",
+  "agent",
+  "worktree",
+  "team",
+  "tool_search",
 ]
